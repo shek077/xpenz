@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Neumorphic Expense Tracker</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#f0fff4">
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- jsPDF + html2canvas for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#f0fff4; /* background */
+      --surface:#e8f5e9; /* cards */
+      --text:#2e7d32;
+      --accent:#66bb6a; /* mint accent */
+      --muted:#6b8e6b;
+      --shadow-light: rgba(255,255,255,1);
+      --shadow-dark: rgba(208,230,209,1);
+      --radius-lg:30px;
+      --radius-md:12px;
+      --transition:200ms;
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text)}
+
+    /* Layout */
+    .app{
+      max-width:1100px;margin:28px auto;padding:28px;display:grid;gap:20px;grid-template-columns:420px 1fr;
+    }
+
+    /* Neumorphic card */
+    .card{
+      background:var(--surface);border-radius:var(--radius-md);padding:18px;box-shadow:9px 9px 18px var(--shadow-dark), -9px -9px 18px var(--shadow-light);
+    }
+
+    header{display:flex;align-items:center;justify-content:space-between}
+    header h1{font-size:20px;margin:0}
+    header .balance{font-weight:700;font-size:16px;color:var(--muted)}
+
+    /* form */
+    .form-row{display:flex;gap:10px;margin-bottom:10px}
+    input,select,button{padding:10px;border-radius:12px;border:none;background:linear-gradient(180deg,var(--surface),#ecf6ef);outline:none;box-shadow:inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);}
+    input[type=number]{width:120px}
+
+    .btn{cursor:pointer;padding:10px 14px;border-radius:12px;font-weight:600}
+    .btn-primary{background:linear-gradient(180deg,var(--accent),#4caf50);color:white}
+    .btn-ghost{background:transparent;box-shadow:none}
+
+    .transactions{max-height:320px;overflow:auto;margin-top:12px}
+    .txn{display:flex;justify-content:space-between;padding:10px;margin-bottom:8px;border-radius:12px}
+    .txn .left{display:flex;gap:10px;align-items:center}
+    .chip{padding:6px 10px;border-radius:999px;font-size:12px}
+
+    .credit{color:green}
+    .debit{color:#c62828}
+
+    /* right column */
+    .right-grid{display:grid;grid-template-rows:120px 1fr;gap:20px}
+    .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+    footer{display:flex;gap:10px;align-items:center;justify-content:flex-end}
+
+    /* small screens */
+    @media (max-width:900px){
+      .app{grid-template-columns:1fr;padding:16px}
+      .charts{grid-template-columns:1fr}
+    }
+
+    /* budget progress */
+    .budget{display:flex;flex-direction:column;gap:8px}
+    .progress{height:12px;border-radius:999px;background:linear-gradient(90deg,#f0f6f0,#eef7ee);overflow:hidden}
+    .progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#8ad48a);width:0}
+
+    /* subtle small text */
+    .muted{color:var(--muted);font-size:13px}
+
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- LEFT: input, transactions, budget -->
+    <div class="card">
+      <header>
+        <h1>Neumorphic Expense Tracker</h1>
+        <div class="balance">Balance: <span id="balance">₹0.00</span></div>
+      </header>
+
+      <section style="margin-top:12px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <select id="type">
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+          </select>
+          <input id="amount" type="number" placeholder="Amount" />
+          <input id="title" type="text" placeholder="Title (eg. Lunch)" />
+        </div>
+
+        <div class="form-row">
+          <select id="category">
+            <option value="food">Food</option>
+            <option value="travel">Travel</option>
+            <option value="rent">Rent</option>
+            <option value="salary">Salary</option>
+            <option value="entertainment">Entertainment</option>
+            <option value="other">Other</option>
+          </select>
+          <input id="customCategory" type="text" placeholder="Add category (press +)" />
+          <button class="btn" id="addCatBtn">+</button>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn btn-primary" id="addBtn">Add</button>
+          <button class="btn" id="clearBtn">Clear All</button>
+          <button class="btn" id="exportPdf">Export PDF</button>
+        </div>
+
+        <div class="transactions" id="txnList" aria-live="polite" style="margin-top:12px"></div>
+      </section>
+
+      <section style="margin-top:12px" class="budget card" id="budgetCard">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="muted">Monthly Budget</div>
+            <div style="font-weight:700">₹<span id="budgetAmount">0</span></div>
+          </div>
+          <div style="text-align:right">
+            <div class="muted">Spent</div>
+            <div>₹<span id="spentAmount">0</span></div>
+          </div>
+        </div>
+        <div class="progress"><i id="progressBar"></i></div>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <input id="setBudgetInput" type="number" placeholder="Set monthly budget" />
+          <button class="btn" id="setBudgetBtn">Set</button>
+          <div class="muted" style="margin-left:auto">Alerts: <input type="checkbox" id="notifyToggle" checked /></div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- RIGHT: charts & summary -->
+    <div class="right-grid">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="muted">Summary (this month)</div>
+            <div style="font-weight:800;font-size:22px">₹<span id="monthTotal">0.00</span></div>
+          </div>
+          <div style="text-align:right">
+            <div class="muted">Income</div>
+            <div class="credit">₹<span id="incomeTotal">0</span></div>
+            <div class="muted">Expenses</div>
+            <div class="debit">₹<span id="expenseTotal">0</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="display:flex;gap:10px;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="muted">Controls</div>
+          <div>
+            <button class="btn" id="refreshBtn">Refresh</button>
+            <button class="btn" id="downloadRaw">Download CSV</button>
+          </div>
+        </div>
+        <div style="font-size:13px;margin-top:6px" class="muted">Tip: Use the category input to add custom categories quickly.</div>
+      </div>
+
+      <div class="card charts">
+        <canvas id="pieChart"></canvas>
+        <canvas id="barChart"></canvas>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="muted">All transactions</div>
+          <div class="muted">Count: <span id="txnCount">0</span></div>
+        </div>
+        <div id="allTxns" style="margin-top:10px;overflow:auto;max-height:240px"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ------------------------------------------------------------------
+// Data model + persistence
+// ------------------------------------------------------------------
+const STORAGE_KEY = 'neumo_expense_v1';
+let state = {
+  txns: [], // {id, type: 'expense'|'income', amount, title, category, date}
+  budget: 0,
+  alertsEnabled: true
+};
+
+function load(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(raw){
+    try{ state = JSON.parse(raw); }
+    catch(e){ console.error('corrupt storage',e); localStorage.removeItem(STORAGE_KEY); }
+  }
+}
+function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+// ------------------------------------------------------------------
+// Utilities
+// ------------------------------------------------------------------
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function fmt(n){ return Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+// ------------------------------------------------------------------
+// DOM hooks
+// ------------------------------------------------------------------
+const txnList = document.getElementById('txnList');
+const balanceEl = document.getElementById('balance');
+const budgetAmountEl = document.getElementById('budgetAmount');
+const spentAmountEl = document.getElementById('spentAmount');
+const progressBar = document.getElementById('progressBar');
+const monthTotal = document.getElementById('monthTotal');
+const incomeTotal = document.getElementById('incomeTotal');
+const expenseTotal = document.getElementById('expenseTotal');
+const allTxns = document.getElementById('allTxns');
+const txnCount = document.getElementById('txnCount');
+
+// charts
+let pieChart=null, barChart=null;
+
+// controls
+const typeInput = document.getElementById('type');
+const amountInput = document.getElementById('amount');
+const titleInput = document.getElementById('title');
+const categorySelect = document.getElementById('category');
+const customCategoryInput = document.getElementById('customCategory');
+
+// ------------------------------------------------------------------
+// CRUD
+// ------------------------------------------------------------------
+function addTransaction(tx){
+  state.txns.push(tx); save(); render(); checkBudgetAndNotify(); }
+
+function removeTxn(id){ state.txns = state.txns.filter(t=>t.id!==id); save(); render(); }
+
+function clearAll(){ if(!confirm('Clear all data? This cannot be undone.')) return; state.txns=[]; state.budget=0; save(); render(); }
+
+// ------------------------------------------------------------------
+// Rendering
+// ------------------------------------------------------------------
+function render(){
+  // balance
+  const income = state.txns.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount),0);
+  const expense = state.txns.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0);
+  const bal = income - expense;
+  balanceEl.textContent = '₹'+fmt(bal);
+  incomeTotal.textContent = fmt(income);
+  expenseTotal.textContent = fmt(expense);
+
+  // transactions list (recent 50)
+  txnList.innerHTML='';
+  state.txns.slice().reverse().slice(0,100).forEach(t=>{
+    const el = document.createElement('div'); el.className='txn card';
+    const left = document.createElement('div'); left.className='left';
+    const chip = document.createElement('div'); chip.className='chip'; chip.textContent = t.category;
+    const meta = document.createElement('div'); meta.innerHTML = `<div style="font-weight:700">${t.title}</div><div class='muted' style='font-size:12px'>${new Date(t.date).toLocaleString()}</div>`;
+    left.appendChild(chip); left.appendChild(meta);
+    const right = document.createElement('div'); right.innerHTML = `<div class='${t.type==='income'?'credit':'debit'}'>${t.type==='income'?'+':'-'}₹${fmt(t.amount)}</div><div style='text-align:right;margin-top:6px'><button class='btn' onclick="removeTxn('${t.id}')">Del</button></div>`;
+    el.appendChild(left); el.appendChild(right);
+    txnList.appendChild(el);
+  });
+
+  // summary month (filter by same month/year)
+  const now = new Date();
+  const monthTxns = state.txns.filter(t=>{ const d=new Date(t.date); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); });
+  const incM = monthTxns.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount),0);
+  const expM = monthTxns.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0);
+  monthTotal.textContent = fmt(incM - expM);
+
+  // budget
+  budgetAmountEl.textContent = fmt(state.budget || 0);
+  spentAmountEl.textContent = fmt(expM);
+  const pct = state.budget ? Math.min(100, Math.round((expM/state.budget)*100)) : 0;
+  progressBar.style.width = pct + '%';
+  progressBar.title = pct + '% of budget used';
+
+  // txns table
+  txnCount.textContent = state.txns.length;
+  allTxns.innerHTML = '<table style="width:100%;font-size:13px"><thead><tr><th>When</th><th>Title</th><th>Category</th><th>Type</th><th>Amt</th></tr></thead><tbody>' + state.txns.slice().reverse().map(t=>`<tr><td>${new Date(t.date).toLocaleString()}</td><td>${t.title}</td><td>${t.category}</td><td>${t.type}</td><td>₹${fmt(t.amount)}</td></tr>`).join('') + '</tbody></table>';
+
+  // charts
+  updateCharts();
+}
+
+// ------------------------------------------------------------------
+// Charts
+// ------------------------------------------------------------------
+function updateCharts(){
+  const ctxPie = document.getElementById('pieChart').getContext('2d');
+  const ctxBar = document.getElementById('barChart').getContext('2d');
+
+  // Pie by categories (expenses only, last 90 days)
+  const cutoff = Date.now() - 90*24*3600*1000;
+  const catMap = {};
+  state.txns.filter(t=>t.type==='expense' && new Date(t.date).getTime()>=cutoff).forEach(t=>{ catMap[t.category] = (catMap[t.category]||0) + Number(t.amount); });
+  const labels = Object.keys(catMap);
+  const data = labels.map(l=>catMap[l]);
+
+  if(pieChart){ pieChart.data.labels = labels; pieChart.data.datasets[0].data = data; pieChart.update(); }
+  else{ pieChart = new Chart(ctxPie,{ type:'pie', data:{labels, datasets:[{data, label:'Expenses'}]}, options:{responsive:true} }); }
+
+  // Bar: monthly trend (last 6 months) income-expense stacked
+  const months = [];
+  const monthLabels = [];
+  for(let i=5;i>=0;i--){ const d=new Date(); d.setMonth(d.getMonth()-i); months.push([d.getFullYear(),d.getMonth()]); monthLabels.push(d.toLocaleString(undefined,{month:'short',year:'numeric'})); }
+  const incData = months.map(m=>0); const expData = months.map(m=>0);
+  state.txns.forEach(t=>{ const d=new Date(t.date); const key = `${d.getFullYear()}-${d.getMonth()}`; months.forEach((mm,idx)=>{ if(mm[0]===d.getFullYear() && mm[1]===d.getMonth()){ if(t.type==='income') incData[idx]+=Number(t.amount); else expData[idx]+=Number(t.amount); } }); });
+
+  if(barChart){ barChart.data.labels = monthLabels; barChart.data.datasets[0].data = incData; barChart.data.datasets[1].data = expData; barChart.update(); }
+  else{ barChart = new Chart(ctxBar,{ type:'bar', data:{ labels:monthLabels, datasets:[ { label:'Income', data:incData, stack:'stack1' }, { label:'Expense', data:expData, stack:'stack1' } ] }, options:{ responsive:true, scales:{ x:{ stacked:true }, y:{ stacked:true } } } }); }
+}
+
+// ------------------------------------------------------------------
+// Budget & Notifications
+// ------------------------------------------------------------------
+function checkBudgetAndNotify(){
+  if(!state.budget || !state.alertsEnabled) return;
+  const now = new Date();
+  const thisMonthExpense = state.txns.filter(t=>t.type==='expense' && new Date(t.date).getMonth()===now.getMonth() && new Date(t.date).getFullYear()===now.getFullYear()).reduce((s,t)=>s+Number(t.amount),0);
+  const pct = (thisMonthExpense / state.budget) * 100;
+  if(pct >= 100){ notifyUser('Budget exceeded', `You have used ${Math.round(pct)}% of your budget.`); }
+  else if(pct >= 75){ notifyUser('Budget alert', `You have used ${Math.round(pct)}% of your budget.`); }
+}
+
+function notifyUser(title, body){
+  // In-app highlight
+  progressBar.style.boxShadow = '0 0 12px rgba(255,60,60,0.18)';
+  setTimeout(()=>progressBar.style.boxShadow='none',4000);
+
+  if(state.alertsEnabled && 'Notification' in window){
+    if(Notification.permission === 'granted'){ new Notification(title,{body}); }
+    else if(Notification.permission !== 'denied'){ Notification.requestPermission().then(p=>{ if(p==='granted') new Notification(title,{body}); }); }
+  }
+}
+
+// ------------------------------------------------------------------
+// UI wiring
+// ------------------------------------------------------------------
+document.getElementById('addBtn').addEventListener('click', ()=>{
+  const amt = Number(amountInput.value);
+  const tit = titleInput.value || (typeInput.value==='expense'?'Expense':'Income');
+  const cat = categorySelect.value;
+  if(!amt || amt<=0){ alert('Enter a valid amount'); return; }
+  addTransaction({ id: uid(), type:typeInput.value, amount:amt, title:tit, category:cat, date: new Date().toISOString() });
+  amountInput.value=''; titleInput.value='';
+});
+
+document.getElementById('clearBtn').addEventListener('click', clearAll);
+
+document.getElementById('addCatBtn').addEventListener('click', ()=>{
+  const v = customCategoryInput.value.trim(); if(!v) return; const opt = document.createElement('option'); opt.value = v; opt.textContent = v; categorySelect.appendChild(opt); categorySelect.value = v; customCategoryInput.value='';
+});
+
+document.getElementById('setBudgetBtn').addEventListener('click', ()=>{
+  const val = Number(document.getElementById('setBudgetInput').value);
+  if(!val || val<=0){ alert('Enter valid budget'); return; }
+  state.budget = val; state.alertsEnabled = document.getElementById('notifyToggle').checked; save(); render(); checkBudgetAndNotify();
+});
+
+document.getElementById('refreshBtn').addEventListener('click', ()=>{ render(); alert('Refreshed'); });
+
+document.getElementById('downloadRaw').addEventListener('click', ()=>{
+  // CSV
+  const rows = [['date','title','category','type','amount']].concat(state.txns.map(t=>[t.date,t.title,t.category,t.type,t.amount]));
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv'}); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='transactions.csv'; a.click(); URL.revokeObjectURL(url);
+});
+
+// Export PDF using html2canvas + jsPDF
+document.getElementById('exportPdf').addEventListener('click', async ()=>{
+  const el = document.querySelector('.app');
+  const canvas = await html2canvas(el, {scale:2});
+  const imgData = canvas.toDataURL('image/png');
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({orientation:'portrait',unit:'px',format:[canvas.width, canvas.height]});
+  pdf.addImage(imgData,'PNG',0,0,canvas.width, canvas.height);
+  pdf.save('expense-tracker.pdf');
+});
+
+// simple global remove function exposure for inline onclick (safe-ish)
+window.removeTxn = function(id){ if(confirm('Delete this transaction?')){ removeTxn(id); } };
+
+// init
+load(); render();
+
+// request Notification permission early (user can disable)
+if('Notification' in window && Notification.permission === 'default'){
+  try{ Notification.requestPermission(); } catch(e){}
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+
+</script>
+</body>
+</html>
